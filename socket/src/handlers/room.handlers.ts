@@ -9,10 +9,10 @@ export const handleCreateRoom = async (
   callback: (data: any) => void,
 ) => {
   try {
-    console.log("Creating room...");
+    // console.log("Creating room...");
     const token = await createRoom({ user, roomId, socketId: socket.id });
     socket.join(roomId);
-    console.log("New room  and token created  : ", token);
+    // console.log("New room  and token created  : ", token);
     callback({ success: true, token });
   } catch (err) {
     callback({ success: false, error: "Room creation failed" });

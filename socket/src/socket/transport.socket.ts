@@ -5,10 +5,19 @@ import {
 } from "../handlers/transport.handler";
 
 export default function transportSocket(socket: Socket) {
-  socket.on("create-transport", async ({ kind }, cb) => {
-    handleCreateTransport(socket);
+  socket.on("create-transport", async ({ direction, roomId, peerId }, cb) => {
+    handleCreateTransport(direction, roomId, peerId, cb);
   });
-  socket.on("connect-transport", async ({ kind }, cb) => {
-    handleConnectTransport(socket);
-  });
+  socket.on(
+    "connect-transport",
+    async ({ transportId, dtlsParameters, roomId, peerId }, cb) => {
+      handleConnectTransport(  
+        transportId,
+        dtlsParameters,
+        roomId,
+        peerId,
+        cb,
+      );
+    },
+  );
 }
