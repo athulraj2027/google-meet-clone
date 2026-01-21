@@ -54,12 +54,12 @@ export default function Home() {
     socket.emit(
       "create-room",
       { user: { peerId }, roomId },
-      ({ success, token }: { success: boolean; token: string }) => {
+      ({ success }: { success: boolean; token: string }) => {
         if (!success) {
           toast.error("Failed to create room");
           return;
         }
-        router.push(`/room?roomId=${roomId}&token=${token}`);
+        router.push(`/room?roomId=${roomId}`);
       },
     );
   };

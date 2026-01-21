@@ -5,9 +5,9 @@ import {
   handleGetRtpCapabilities,
   handleJoinRoom,
   handleLeaveRoom,
-} from "../handlers/room.handlers";
+} from "../handlers/room.handler";
 
-export default function roomSocket(socket: Socket) {
+export  function roomSocket(socket: Socket) {
   socket.on("create-room", ({ user, roomId }, cb) => {
     handleCreateRoom(socket, user, roomId, cb);
   });

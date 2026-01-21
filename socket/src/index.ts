@@ -4,8 +4,12 @@ import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { createWorker } from "./mediasoup/worker";
-import roomSocket from "./socket/room.socket";
-import transportSocket from "./socket/transport.socket";
+import {
+  consumerSocket,
+  producerSocket,
+  roomSocket,
+  transportSocket,
+} from "./socket";
 
 const PORT = process.env.PORT;
 
@@ -24,6 +28,8 @@ io.on("connection", async (socket) => {
 
   roomSocket(socket);
   transportSocket(socket);
+  producerSocket(socket);
+  consumerSocket(socket);
 });
 
 server.listen(PORT, () => {

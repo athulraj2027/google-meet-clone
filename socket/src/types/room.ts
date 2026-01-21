@@ -13,5 +13,4 @@ export interface RoomInterface {
   router: Router;
   hostPeerId: string;
   peers: Map<string, User>;
-  token: string;
 }

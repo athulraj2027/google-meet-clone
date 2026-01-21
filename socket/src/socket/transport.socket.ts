@@ -4,7 +4,7 @@ import {
   handleCreateTransport,
 } from "../handlers/transport.handler";
 
-export default function transportSocket(socket: Socket) {
+export  function transportSocket(socket: Socket) {
   socket.on("create-transport", async ({ direction, roomId, peerId }, cb) => {
     handleCreateTransport(direction, roomId, peerId, cb);
   });

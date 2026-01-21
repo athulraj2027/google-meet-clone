@@ -10,10 +10,10 @@ export const handleCreateRoom = async (
 ) => {
   try {
     // console.log("Creating room...");
-    const token = await createRoom({ user, roomId, socketId: socket.id });
+    await createRoom({ user, roomId, socketId: socket.id });
     socket.join(roomId);
     // console.log("New room  and token created  : ", token);
-    callback({ success: true, token });
+    callback({ success: true });
   } catch (err) {
     callback({ success: false, error: "Room creation failed" });
   }
@@ -40,6 +40,7 @@ export const handleGetRtpCapabilities = async (
 ) => {
   try {
     const rtpCapabilities = await getRtpCapabilities(roomId);
+    console.log("Rtp capabilities : ", rtpCapabilities);
     callback({ success: true, rtpCapabilities });
   } catch (error) {
     callback({ success: false, error: "Fetching rtp capabilities failed" });

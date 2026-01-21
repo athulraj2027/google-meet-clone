@@ -33,5 +33,7 @@ export const mediasoupConnectTransport = async (
   transport: Transport,
   dtlsParameters: DtlsParameters,
 ) => {
+  console.log("dtlsParams", dtlsParameters);
   await transport.connect({ dtlsParameters });
+  return;
 };

@@ -13,6 +13,7 @@ export const createRoom = async ({
   socketId: string;
 }) => {
   const router = await createRouter(roomId);
+  console.log("Router : ", router);
   if (!router) throw new Error("Router creation failed");
   const hostPeer: User = {
     socketId,
@@ -23,15 +24,12 @@ export const createRoom = async ({
   };
   const peers = new Map<string, User>();
   peers.set(user.peerId, hostPeer);
-  const token =  crypto.randomUUID();
-  const hashedToken = await bcrypt.hash(token, 10);
 
   const roomDetails: RoomInterface = {
     router,
     hostPeerId: user.peerId,
     peers,
-    token: hashedToken,
   };
   Rooms.set(roomId, roomDetails);
-  return token;
+  return;
 };
