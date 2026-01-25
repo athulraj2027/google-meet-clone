@@ -13,6 +13,7 @@ export const createTransport = async (
     return { success: false, message: "Creating transport failed" };
   const peer = room.peers.get(peerId);
   peer?.transports.set(transport.id, transport);
+  console.log("transportId : ", transport.id);
 
   return {
     id: transport.id,
@@ -30,7 +31,13 @@ export const getTransport = async (
   const transport = Rooms.get(roomId)
     ?.peers.get(peerId)
     ?.transports.get(transportId);
+
+  // console.log(
+  //   "User transports : ",
+  //   Rooms.get(roomId)?.peers.get(peerId)?.transports,
+  // );
+  console.log("Transport id argument : ", transportId);
   if (!transport) return { success: false, message: "Transport not found" };
-  console.log("Transport : ", transport);
+  // console.log("Transport : ", transport);
   return { success: true, transport };
 };

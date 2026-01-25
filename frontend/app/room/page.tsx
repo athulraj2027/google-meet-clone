@@ -2,12 +2,19 @@
 
 import * as mediasoupClient from "mediasoup-client";
 import { socket } from "@/lib/socket";
-import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Producer, Transport, TransportOptions } from "mediasoup-client/types";
+import {
+  Consumer,
+  Producer,
+  RtpParameters,
+  Transport,
+  TransportOptions,
+} from "mediasoup-client/types";
 
 export default function RoomPage() {
+  const router = useRouter();
   const params = useSearchParams();
   const roomId = params.get("roomId");
   const initialized = useRef(false);
@@ -19,54 +26,48 @@ export default function RoomPage() {
   const videoProducerRef = useRef<Producer>(undefined);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream>(null);
+  const consumerRef = useRef<Consumer[]>([]);
+  const [startedConsuming, setStartedConsuming] = useState(false);
 
   const [mic, setMic] = useState(false);
   const [video, setVideo] = useState(false);
 
   const startVideo = async () => {
     try {
-      // If producer exists but paused → create NEW track
       const peerId = localStorage.getItem("peerId");
       if (videoProducerRef.current) {
         const mediastream = await navigator.mediaDevices.getUserMedia({
           video: true,
         });
-
         localStreamRef.current = mediastream;
-
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = mediastream;
         }
-
         const newTrack = mediastream.getVideoTracks()[0];
-
         await videoProducerRef.current.replaceTrack({
           track: newTrack,
         });
-
         videoProducerRef.current.resume();
         setVideo(true);
-        socket.emit("resume-produce", { kind: "video", peerId, roomId });
+        socket.emit("resume-produce", {
+          kind: "video",
+          producerId: videoProducerRef.current.id,
+          peerId,
+          roomId,
+        });
         return;
       }
-
-      // First time
       const mediastream = await navigator.mediaDevices.getUserMedia({
         video: true,
       });
-
       localStreamRef.current = mediastream;
-
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = mediastream;
       }
-
       const track = mediastream.getVideoTracks()[0];
-
       videoProducerRef.current = await sendTransportRef.current?.produce({
         track,
       });
-
       setVideo(true);
     } catch (error) {
       console.log("Error starting video:", error);
@@ -77,19 +78,18 @@ export default function RoomPage() {
   const stopVideo = async () => {
     try {
       const peerId = localStorage.getItem("peerId");
-      // 1. Pause producer (stop sending)
       videoProducerRef.current?.pause();
-
-      // 2. Stop camera hardware
       const track = localStreamRef.current?.getVideoTracks()[0];
       track?.stop();
-
-      // 3. Remove from video element
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
-      socket.emit("pause-produce", { kind: "video", peerId, roomId });
-
+      socket.emit("pause-produce", {
+        kind: "video",
+        producerId: videoProducerRef.current?.id,
+        roomId,
+        peerId,
+      });
       setVideo(false);
     } catch (error) {
       console.log("Error in stopping video : ", error);
@@ -100,40 +100,34 @@ export default function RoomPage() {
   const startMic = async () => {
     try {
       const peerId = localStorage.getItem("peerId");
-      // If producer exists → create NEW track
       if (audioProducerRef.current) {
         const mediastream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-
         localStreamRef.current = mediastream;
-
         const newTrack = mediastream.getAudioTracks()[0];
-
         await audioProducerRef.current.replaceTrack({
           track: newTrack,
         });
-
         audioProducerRef.current.resume();
         setMic(true);
+        socket.emit("resume-produce", {
+          kind: "audio",
+          producerId: audioProducerRef.current.id,
+          peerId,
+          roomId,
+        });
         return;
       }
-
-      // First time
       const mediastream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-
       localStreamRef.current = mediastream;
-
       const track = mediastream.getAudioTracks()[0];
-
       audioProducerRef.current = await sendTransportRef.current?.produce({
         track,
       });
-
       setMic(true);
-      socket.emit("resume-produce", { kind: "audio", peerId, roomId });
     } catch (error) {
       console.log("Error starting mic:", error);
       toast.error("Mic permission required");
@@ -151,26 +145,209 @@ export default function RoomPage() {
       track?.stop();
 
       setMic(false);
-      socket.emit("pause-produce", { kind: "audio", peerId, roomId });
+      socket.emit("pause-produce", {
+        kind: "audio",
+        producerId: audioProducerRef.current?.id,
+        roomId,
+        peerId,
+      });
     } catch (error) {
       console.log("Error muting mic:", error);
       toast.error("Failed to mute mic");
     }
   };
 
-  const leaveRoom = async () => {};
+  const leaveRoom = async () => {
+    const peerId = localStorage.getItem("peerId");
+
+    socket.emit("leave-room", { peerId, roomId }, async () => {
+      videoProducerRef.current?.close();
+      audioProducerRef.current?.close();
+      consumerRef.current?.forEach((consumer) => consumer.close());
+      consumerRef.current = [];
+      sendTransportRef.current?.close();
+      recvTransportRef.current?.close();
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+
+      toast.success("You left the room");
+      router.push("/");
+    });
+  };
+
+  const attachVideo = async (stream: MediaStream, consumer: Consumer) => {
+    const video = document.createElement(`video`);
+    video.srcObject = stream;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.className = "w-full rounded-lg bg-black";
+
+    video.dataset.consumerId = consumer.id;
+
+    document.getElementById("remote-videos")?.appendChild(video);
+  };
+
+  const attachAudio = (stream: MediaStream) => {
+    const audio = document.createElement("audio");
+    audio.srcObject = stream;
+    audio.autoplay = true;
+  };
+
+  const consumeProducer = useCallback(
+    async (producer: {
+      producerId: string;
+      peerId: string;
+      kind: "audio" | "video";
+      paused: boolean;
+    }) => {
+      const peerId = localStorage.getItem("peerId");
+      if (!recvTransportRef.current || !deviceRef.current) {
+        console.error("Recv transport not ready yet");
+        return;
+      }
+      socket.emit(
+        "consume",
+        {
+          roomId,
+          producer,
+          consumerPeerId: peerId,
+          rtpCapabilities: deviceRef.current?.rtpCapabilities,
+          transportId: recvTransportRef.current?.id,
+        },
+        async ({
+          success,
+          params,
+        }: {
+          success: boolean;
+          params: {
+            id: string;
+            producerId: string;
+            kind: "audio" | "video";
+            rtpParameters: RtpParameters;
+          };
+        }) => {
+          console.log("params received from the consume event : ", params); // it is now undefined
+          if (!success) {
+            console.log("Consumption cb error");
+            toast.error("Failed to consume from server");
+            return;
+          }
+          const { id, producerId, kind, rtpParameters } = params;
+          const consumer = await recvTransportRef.current?.consume({
+            id,
+            producerId,
+            kind,
+            rtpParameters,
+          });
+          if (!consumer) {
+            console.log("Failed to create frontend consumer");
+            return;
+          }
+
+          consumerRef.current?.push(consumer);
+
+          // if the consumer is paused, the consumer need to be resumed
+          socket.emit("resume-consumer", {
+            roomId,
+            peerId,
+            consumerId: consumer.id,
+          });
+
+          console.log("consumerRef : ", consumerRef.current);
+          // now time to consume the data
+          const stream = new MediaStream();
+          stream.addTrack(consumer.track);
+          if (consumer.kind === "video") {
+            attachVideo(stream, consumer);
+          } else if (consumer.kind === "audio") {
+            attachAudio(stream);
+          }
+        },
+      );
+    },
+    [roomId],
+  );
+
+  const startGettingMedia = async () => {
+    const peerId = localStorage.getItem("peerId");
+    socket.emit(
+      "get-producers",
+      { roomId, peerId },
+      async (response: {
+        success: boolean;
+        producers: {
+          producerId: string;
+          peerId: string;
+          kind: "audio" | "video";
+          paused: boolean;
+        }[];
+      }) => {
+        console.log("Get producers given : ", response);
+        if (!response.success) return;
+
+        response.producers.forEach(async (producer) => {
+          console.log("producer for the call : ", producer);
+          await consumeProducer(producer);
+        });
+      },
+    );
+    setStartedConsuming(true);
+  };
 
   useEffect(() => {
-    socket.on("producer-paused", async ({ kind, peerId }) => {});
-    socket.on("producer-resumed", async ({ kind, peerId }) => {});
-    socket.on("user-left-room", async ({ peerId }) => {});
+    socket.on("producer-paused", async () => {
+      toast.error("A producer pasued");
+    });
+    socket.on("producer-resumed", async () => {
+      toast.error("Producer resumed");
+    });
+    socket.on("user-left-room", async ({ peerId }) => {
+      toast.warning(`User ${peerId} left the room`);
+    });
+
+    socket.on("producer-stopped", async ({ consumerId }) => {
+      console.log("Consumers first : ", consumerRef);
+
+      const newConsumerRef = consumerRef.current.filter(
+        (consumer) => consumer.id !== consumerId,
+      );
+
+      consumerRef.current = newConsumerRef;
+      console.log("Consumers second : ", consumerRef);
+
+      const container = document.getElementById("remote-videos");
+      if (!container) return;
+
+      const video = container.querySelector(
+        `video[data-consumer-id="${consumerId}"]`,
+      ) as HTMLVideoElement | null;
+
+      if (video) {
+        video.srcObject = null;
+        video.remove();
+      }
+    });
+
+    socket.on("new-user", async ({ peerId }) => {
+      toast.success(`New user (${peerId}) joined this room`);
+    });
+
+    socket.on("new-producer", async ({ producer }) => {
+      consumeProducer(producer);
+    });
 
     return () => {
       socket.off("producer-paused");
       socket.off("producer-resumed");
+      socket.off("producer-stopped");
       socket.off("user-left-room");
+      socket.off("new-user");
+      socket.off("new-producer");
     };
-  });
+  }, [consumeProducer]);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -232,7 +409,7 @@ export default function RoomPage() {
                         },
                         (response: { success: boolean }) => {
                           console.log(
-                            "✅ Server response after connecting :",
+                            "Server response after connecting :",
                             response,
                           );
 
@@ -245,7 +422,7 @@ export default function RoomPage() {
                         },
                       );
                     } catch (error) {
-                      console.error("❌ Connect error:", error);
+                      console.error(" Connect error:", error);
                       errback(error as Error);
                     }
                   },
@@ -292,7 +469,7 @@ export default function RoomPage() {
                         },
                         (response: { success: boolean }) => {
                           console.log(
-                            "✅ Server response after connecting :",
+                            " Server response after connecting :",
                             response,
                           );
                           if (response?.success) {
@@ -304,21 +481,16 @@ export default function RoomPage() {
                         },
                       );
                     } catch (error) {
-                      console.error("❌ Connect error:", error);
+                      console.error(" Connect error:", error);
                       errback(error as Error);
                     }
                   },
                 );
                 recvTransportRef.current = recvTransport;
-                socket.emit(
-                  "get-producers",
-                  { roomId, peerId },
-                  async (response: {
-                    success: boolean;
-                    producers: Map<string, string>;
-                  }) => {
-                    if (!response.success) return;
-                  },
+                console.log(
+                  "recvTransportId && recvTransportrefId",
+                  recvTransport.id,
+                  recvTransportRef.current.id,
                 );
               },
             );
@@ -326,40 +498,348 @@ export default function RoomPage() {
         );
       },
     );
+  }, [roomId, consumeProducer]);
+
+  useEffect(() => {
+    const peerId = localStorage.getItem("peerId");
+
+    const handleLeave = () => {
+      if (!peerId || !roomId) return;
+
+      socket.emit(
+        "leave-room",
+        {
+          peerId,
+          roomId,
+        },
+        () => {},
+      );
+
+      // hard cleanup (local only)
+      sendTransportRef.current?.close();
+      recvTransportRef.current?.close();
+      videoProducerRef.current?.close();
+      audioProducerRef.current?.close();
+      consumerRef.current?.forEach((consumer) => consumer.close());
+    };
+
+    window.addEventListener("beforeunload", handleLeave);
+    window.addEventListener("pagehide", handleLeave); // iOS/Safari
+
+    return () => {
+      window.removeEventListener("beforeunload", handleLeave);
+      window.removeEventListener("pagehide", handleLeave);
+    };
   }, [roomId]);
 
   return (
-    <div className="flex gap-7">
-      <div className="relative">
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          muted // IMPORTANT (avoid echo)
-          className="w-60 rounded-lg"
-        />
-        <div className="absolute b-0">
-          <p>You</p>
+    <div className="min-h-screen bg-[#202124] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-linear-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+            <svg
+              className="w-6 h-6 text-white"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-white font-medium">Room Session</h1>
+            <p className="text-gray-400 text-sm">Meeting in progress</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span>Connected</span>
+          </div>
+          <button className="text-gray-400 hover:text-white transition">
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+              />
+            </svg>
+          </button>
         </div>
       </div>
-      <div className="flex gap-3">
-        <button
-          onClick={!mic ? startMic : stopMic}
-          className="bg-blue-500 p-2 rounded-md"
-        >
-          {mic ? "Mute" : "Unmute"}
-        </button>
 
-        <button
-          onClick={!video ? startVideo : stopVideo}
-          className="bg-blue-500 p-2 rounded-md"
+      {/* Main Video Area */}
+      <div className="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
+        {/* Background gradient effect */}
+        <div className="absolute inset-0 bg-linear-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"></div>
+
+        {/* Remote Videos Grid */}
+        <div
+          id="remote-videos"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-7xl h-full"
         >
-          Video {video ? "Off" : "On"}
-        </button>
-        <button onClick={leaveRoom} className="bg-red-500 p-2 rounded-md">
-          Leave Room
-        </button>
+          {/* Remote videos will be added here dynamically */}
+        </div>
+
+        {/* Local Video (Picture-in-Picture) */}
+        <div className="absolute bottom-6 right-6 group">
+          <div className="relative">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-64 aspect-video rounded-xl bg-gray-900 shadow-2xl border-2 border-white/10 object-cover"
+            />
+            <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                <div className="bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                  <span className="text-white text-xs font-medium">You</span>
+                </div>
+              </div>
+            </div>
+            {!video && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-800 rounded-xl">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                    <span className="text-white text-2xl font-bold">Y</span>
+                  </div>
+                  <p className="text-gray-400 text-sm">Camera Off</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Bottom Controls */}
+      <div className="px-6 py-4 bg-[#1a1a1c] border-t border-white/10">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          {/* Left side - Meeting info */}
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span>00:00:00</span>
+          </div>
+
+          {/* Center - Main controls */}
+          <div className="flex items-center gap-3">
+            {/* Microphone */}
+            <button
+              onClick={!mic ? startMic : stopMic}
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
+                mic
+                  ? "bg-[#3c4043] hover:bg-[#4f5256] text-white"
+                  : "bg-red-600 hover:bg-red-700 text-white"
+              }`}
+              title={mic ? "Mute microphone" : "Unmute microphone"}
+            >
+              {mic ? (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                  />
+                </svg>
+              )}
+            </button>
+
+            {/* Camera */}
+            <button
+              onClick={!video ? startVideo : stopVideo}
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
+                video
+                  ? "bg-[#3c4043] hover:bg-[#4f5256] text-white"
+                  : "bg-red-600 hover:bg-red-700 text-white"
+              }`}
+              title={video ? "Turn off camera" : "Turn on camera"}
+            >
+              {video ? (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                </svg>
+              )}
+            </button>
+
+            {/* Leave Call */}
+            <button
+              onClick={leaveRoom}
+              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition-all hover:scale-110 text-white"
+              title="Leave call"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"
+                />
+              </svg>
+            </button>
+
+            {/* Screen Share */}
+            <button
+              className="w-14 h-14 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all hover:scale-110 text-white"
+              title="Present screen"
+              
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+            </button>
+
+            {/* More Options */}
+            <button
+              className="w-14 h-14 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all hover:scale-110 text-white"
+              title="More options"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {/* Right side - Additional controls */}
+          <div className="flex items-center gap-3">
+            <button className="w-10 h-10 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all text-white">
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </button>
+            <button className="w-10 h-10 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all text-white">
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Start Getting Media Button (temporary) */}
+      {!startedConsuming && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+          <button
+            onClick={startGettingMedia}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-lg transition-all hover:scale-105"
+          >
+            Start Receiving Media
+          </button>
+        </div>
+      )}
     </div>
   );
 }

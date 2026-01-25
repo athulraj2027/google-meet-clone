@@ -1,5 +1,5 @@
 import { User } from "../../types/room";
-import { Rooms } from "./room.store";
+import { Rooms, SocketIdToPeer } from "./room.store";
 
 export const joinRoom = async (
   roomId: string,
@@ -22,8 +22,10 @@ export const joinRoom = async (
       producers: new Map(),
       consumers: new Map(),
     };
-    
+
     room.peers.set(user.peerId, newPeer);
+    SocketIdToPeer.set(socketId, { roomId, peerId: user.peerId });
+    
     const existingProducerIds: string[] = [];
     room.peers.forEach((peer) => {
       peer.producers.forEach((producer) => {

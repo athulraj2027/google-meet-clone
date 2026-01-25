@@ -1,7 +1,6 @@
 import { createRouter } from "../../mediasoup/router";
 import { RoomInterface, User } from "../../types/room";
-import { Rooms } from "./room.store";
-import bcrypt from "bcryptjs";
+import { Rooms, SocketIdToPeer } from "./room.store";
 
 export const createRoom = async ({
   user,
@@ -24,6 +23,7 @@ export const createRoom = async ({
   };
   const peers = new Map<string, User>();
   peers.set(user.peerId, hostPeer);
+  SocketIdToPeer.set(socketId, { roomId, peerId: user.peerId });
 
   const roomDetails: RoomInterface = {
     router,

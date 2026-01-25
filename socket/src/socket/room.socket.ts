@@ -2,12 +2,13 @@ import { Socket } from "socket.io";
 import {
   handleCloseRoom,
   handleCreateRoom,
+  handleDisconnectUser,
   handleGetRtpCapabilities,
   handleJoinRoom,
   handleLeaveRoom,
 } from "../handlers/room.handler";
 
-export  function roomSocket(socket: Socket) {
+export function roomSocket(socket: Socket) {
   socket.on("create-room", ({ user, roomId }, cb) => {
     handleCreateRoom(socket, user, roomId, cb);
   });
@@ -16,8 +17,8 @@ export  function roomSocket(socket: Socket) {
     handleJoinRoom(socket, roomId, user, cb);
   });
 
-  socket.on("leave-room", ({ user, roomId }, cb) => {
-    handleLeaveRoom(socket, roomId, user, cb);
+  socket.on("leave-room", ({ peerId, roomId }, cb) => {
+    handleLeaveRoom(socket, roomId, peerId, cb);
   });
 
   socket.on("close-room", ({ user, roomId }, cb) => {
@@ -26,5 +27,9 @@ export  function roomSocket(socket: Socket) {
 
   socket.on("get-rtpCapabilities", ({ roomId }, cb) => {
     handleGetRtpCapabilities(roomId, cb);
+  });
+
+  socket.on("disconnect", async () => {
+    handleDisconnectUser(socket);
   });
 }

@@ -1,10 +1,10 @@
 import { Rooms } from "./room.store";
 
-export const leaveRoom = async (roomId: string, user: { peerId: string }) => {
+export const leaveRoom = async (roomId: string, peerId: string) => {
   const room = Rooms.get(roomId);
   if (!room) throw new Error(`No room found with id: ${roomId}`);
 
-  const peer = room.peers.get(user.peerId);
+  const peer = room.peers.get(peerId);
   if (!peer) throw new Error("User not in room");
 
   peer.consumers?.forEach((consumer) => {
@@ -25,9 +25,9 @@ export const leaveRoom = async (roomId: string, user: { peerId: string }) => {
     } catch {}
   });
 
-  room.peers.delete(user.peerId);
+  room.peers.delete(peerId);
 
-  if (room.hostPeerId === user.peerId) {
+  if (room.hostPeerId === peerId) {
     room.peers.forEach((p) => {
       p.consumers?.forEach((c) => c.close());
       p.producers?.forEach((p) => p.close());
@@ -44,5 +44,5 @@ export const leaveRoom = async (roomId: string, user: { peerId: string }) => {
     Rooms.delete(roomId);
   }
 
-  return { success: true };
+  return { success: true, };
 };

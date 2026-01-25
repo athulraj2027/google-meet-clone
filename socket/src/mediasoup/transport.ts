@@ -9,6 +9,7 @@ export const mediasoupCreateTransport = async (
   router: Router,
   direction: string,
 ) => {
+  // console.log("announced ip : ", process.env.ANNOUNCED_IP);
   try {
     const transport: WebRtcTransport = await router.createWebRtcTransport({
       listenIps: [
@@ -33,7 +34,7 @@ export const mediasoupConnectTransport = async (
   transport: Transport,
   dtlsParameters: DtlsParameters,
 ) => {
-  console.log("dtlsParams", dtlsParameters);
+  // console.log("dtlsParams", dtlsParameters);
   await transport.connect({ dtlsParameters });
   return;
 };

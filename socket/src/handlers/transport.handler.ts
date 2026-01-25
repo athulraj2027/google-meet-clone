@@ -22,7 +22,7 @@ export const handleConnectTransport = async (
   cb: (data: any) => void,
 ) => {
   const data = await getTransport(transportId, peerId, roomId);
-  console.log("data received  : ", data);
+  // console.log("data received  : ", data);
   if (data.transport)
     await mediasoupConnectTransport(data.transport, dtlsParameters);
   cb({ success: true });
