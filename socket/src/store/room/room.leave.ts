@@ -34,9 +34,9 @@ export const leaveRoom = async (roomId: string, peerId: string) => {
       p.transports?.forEach((t) => t.close());
     });
 
-    room.router.close();
-    Rooms.delete(roomId);
-    return { roomClosed: true };
+    // room.router.close();
+    // Rooms.delete(roomId);
+    return;
   }
 
   if (room.peers.size === 0) {
@@ -44,5 +44,5 @@ export const leaveRoom = async (roomId: string, peerId: string) => {
     Rooms.delete(roomId);
   }
 
-  return { success: true, };
+  return { success: true };
 };

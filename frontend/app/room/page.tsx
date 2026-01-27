@@ -55,6 +55,9 @@ export default function RoomPage() {
 
     consumerRef.current.forEach((c) => c.close());
     consumerRef.current = [];
+    initialized.current = false;
+    localStorage.removeItem("peerId");
+
   };
 
   const startVideo = async () => {
@@ -307,6 +310,8 @@ export default function RoomPage() {
       if (localScreenRef.current) {
         localScreenRef.current.srcObject = null;
       }
+      initialized.current = false;
+      localStorage.removeItem("peerId");
       toast.success("You left the room");
       router.push("/");
     });
