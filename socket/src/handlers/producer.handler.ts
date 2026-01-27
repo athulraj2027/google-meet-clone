@@ -13,26 +13,31 @@ export const handleProduce = async (
   peerId: string,
   callback: (data: any) => void,
 ) => {
-  // get transport
-  console.log("hiddfas");
   let producer;
-  const data = await getTransport(transportId, peerId, roomId);
+  const { transport } = await getTransport(transportId, peerId, roomId);
   // create produce
-  if (data.transport) {
-    producer = await data.transport.produce({
-      kind,
-      rtpParameters,
-      appData: {},
-    });
-  }
+
+  producer = await transport?.produce({
+    kind,
+    rtpParameters,
+    appData: { peerId },
+  });
+
   if (!producer) {
     console.log("No producer found");
     return;
   }
 
+  producer.observer.on("pause", () => {
+    socket.to(roomId).emit("producerpaused", { producerId: producer.id });
+  });
+  producer.observer.on("resume", () => {
+    socket.to(roomId).emit("producerresumed", { producerId: producer.id });
+  });
+
   // console.log("Producer created : ", producer);
   await saveProducer(roomId, peerId, producer);
-  callback({ success: true, producerId: producer.id });
+  callback({ id: producer.id });
   socket.to(roomId).emit("new-producer", {
     producer: {
       peerId,
@@ -41,27 +46,28 @@ export const handleProduce = async (
       paused: producer.paused,
     },
   });
-  // save producer
-  // return
 };
 
 export const handlePauseProduce = async (
-  socket: Socket,
   kind: "video" | "audio",
   producerId: string,
   roomId: string,
   peerId: string,
+  cb: (data: any) => void,
 ) => {
   const room = Rooms.get(roomId);
   if (!room) return;
   const producer = room.peers.get(peerId)?.producers.get(producerId);
-  await producer?.pause();
-  socket.to(roomId).emit("producer-paused", { kind, peerId });
-  return;
+  // console.log("pausing producer : ", producer?.id);
+  if (!producer) {
+    cb({ success: false });
+    return;
+  }
+  await producer.pause();
+  cb({ success: true, producerId });
 };
 
 export const handleResumeProduce = async (
-  socket: Socket,
   kind: "video" | "audio",
   producerId: string,
   roomId: string,
@@ -71,6 +77,4 @@ export const handleResumeProduce = async (
   if (!room) return;
   const producer = room.peers.get(peerId)?.producers.get(producerId);
   await producer?.resume();
-  socket.to(roomId).emit("producer-resumed", { kind, peerId });
-  return;
 };

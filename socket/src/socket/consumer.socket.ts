@@ -17,7 +17,6 @@ export function consumerSocket(socket: Socket) {
       cb,
     ) => {
       handleConsume(
-        socket,
         roomId,
         consumerPeerId,
         producer,

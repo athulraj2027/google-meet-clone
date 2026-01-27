@@ -49,12 +49,7 @@ export default function RoomPage() {
         });
         videoProducerRef.current.resume();
         setVideo(true);
-        socket.emit("resume-produce", {
-          kind: "video",
-          producerId: videoProducerRef.current.id,
-          peerId,
-          roomId,
-        });
+
         return;
       }
       const mediastream = await navigator.mediaDevices.getUserMedia({
@@ -65,9 +60,40 @@ export default function RoomPage() {
         localVideoRef.current.srcObject = mediastream;
       }
       const track = mediastream.getVideoTracks()[0];
-      videoProducerRef.current = await sendTransportRef.current?.produce({
+      const videoProducer = await sendTransportRef.current?.produce({
         track,
       });
+
+      videoProducer?.observer.on("pause", () => {
+        console.log("pausing producer...");
+        console.log("video producer : ", videoProducer);
+        socket.emit(
+          "pause-produce",
+          {
+            kind: "video",
+            producerId: videoProducer.id,
+            roomId,
+            peerId,
+          },
+          ({ success }: { success: boolean; producerId: string }) => {
+            console.log("pause : ", success);
+          },
+        );
+      });
+
+      videoProducer?.observer.on("resume", () => {
+        console.log("resuming producer ...");
+        socket.emit("resume-produce", {
+          kind: "video",
+          producerId: videoProducer.id,
+          peerId,
+          roomId,
+        });
+      });
+
+      videoProducer?.observer.on("close", () => {});
+
+      videoProducerRef.current = videoProducer;
       setVideo(true);
     } catch (error) {
       console.log("Error starting video:", error);
@@ -77,19 +103,12 @@ export default function RoomPage() {
 
   const stopVideo = async () => {
     try {
-      const peerId = localStorage.getItem("peerId");
       videoProducerRef.current?.pause();
       const track = localStreamRef.current?.getVideoTracks()[0];
       track?.stop();
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
-      socket.emit("pause-produce", {
-        kind: "video",
-        producerId: videoProducerRef.current?.id,
-        roomId,
-        peerId,
-      });
       setVideo(false);
     } catch (error) {
       console.log("Error in stopping video : ", error);
@@ -111,12 +130,7 @@ export default function RoomPage() {
         });
         audioProducerRef.current.resume();
         setMic(true);
-        socket.emit("resume-produce", {
-          kind: "audio",
-          producerId: audioProducerRef.current.id,
-          peerId,
-          roomId,
-        });
+
         return;
       }
       const mediastream = await navigator.mediaDevices.getUserMedia({
@@ -124,9 +138,30 @@ export default function RoomPage() {
       });
       localStreamRef.current = mediastream;
       const track = mediastream.getAudioTracks()[0];
-      audioProducerRef.current = await sendTransportRef.current?.produce({
+      const audioProducer = await sendTransportRef.current?.produce({
         track,
       });
+
+      audioProducer?.observer.on("pause", () => {
+        socket.emit("pause-produce", {
+          kind: "audio",
+          producerId: audioProducer.id,
+          roomId,
+          peerId,
+        });
+      });
+
+      audioProducer?.observer.on("resume", () => {
+        socket.emit("resume-produce", {
+          kind: "audio",
+          producerId: audioProducer.id,
+          peerId,
+          roomId,
+        });
+      });
+
+      audioProducer?.observer.on("close", () => {});
+      audioProducerRef.current = audioProducer;
       setMic(true);
     } catch (error) {
       console.log("Error starting mic:", error);
@@ -136,21 +171,10 @@ export default function RoomPage() {
 
   const stopMic = async () => {
     try {
-      const peerId = localStorage.getItem("peerId");
-      // Stop sending
       audioProducerRef.current?.pause();
-
-      // Turn OFF mic hardware
       const track = localStreamRef.current?.getAudioTracks()[0];
       track?.stop();
-
       setMic(false);
-      socket.emit("pause-produce", {
-        kind: "audio",
-        producerId: audioProducerRef.current?.id,
-        roomId,
-        peerId,
-      });
     } catch (error) {
       console.log("Error muting mic:", error);
       toast.error("Failed to mute mic");
@@ -178,16 +202,41 @@ export default function RoomPage() {
     });
   };
 
-  const attachVideo = async (stream: MediaStream, consumer: Consumer) => {
-    const video = document.createElement(`video`);
+  const attachVideo = async (
+    stream: MediaStream,
+    consumer: Consumer,
+    producerPeerId: string,
+  ) => {
+    const wrapper = document.createElement("div");
+    wrapper.className =
+      "relative w-full h-full rounded-lg overflow-hidden bg-black";
+    wrapper.dataset.consumerId = consumer.id;
+
+    // Video element
+    const video = document.createElement("video");
     video.srcObject = stream;
     video.autoplay = true;
     video.playsInline = true;
-    video.className = "w-full rounded-lg bg-black";
+    video.className = "w-full h-full object-cover";
+    wrapper.appendChild(video);
 
-    video.dataset.consumerId = consumer.id;
+    // Overlay for paused/Camera off
+    const overlay = document.createElement("div");
+    overlay.className =
+      "absolute inset-0 bg-black/70 flex items-center justify-center text-white text-sm hidden";
+    overlay.innerText = "Camera Off";
+    overlay.dataset.overlay = "true";
+    wrapper.appendChild(overlay);
 
-    document.getElementById("remote-videos")?.appendChild(video);
+    // Peer ID label at bottom
+    const label = document.createElement("div");
+    label.className =
+      "absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs py-1 px-2 text-center";
+    label.innerText = producerPeerId;
+    wrapper.appendChild(label);
+
+    // Append to remote videos container
+    document.getElementById("remote-videos")?.appendChild(wrapper);
   };
 
   const attachAudio = (stream: MediaStream) => {
@@ -227,6 +276,7 @@ export default function RoomPage() {
             producerId: string;
             kind: "audio" | "video";
             rtpParameters: RtpParameters;
+            producerPeerId: string;
           };
         }) => {
           console.log("params received from the consume event : ", params); // it is now undefined
@@ -235,7 +285,8 @@ export default function RoomPage() {
             toast.error("Failed to consume from server");
             return;
           }
-          const { id, producerId, kind, rtpParameters } = params;
+          const { id, producerId, kind, rtpParameters, producerPeerId } =
+            params;
           const consumer = await recvTransportRef.current?.consume({
             id,
             producerId,
@@ -247,9 +298,58 @@ export default function RoomPage() {
             return;
           }
 
-          consumerRef.current?.push(consumer);
+          consumer.on("@pause", () => {
+            console.log("paused");
+            if (consumer.kind === "video") {
+              const wrapper = document.querySelector(
+                `div[data-consumer-id="${consumer.id}"]`,
+              ) as HTMLDivElement | null;
 
-          // if the consumer is paused, the consumer need to be resumed
+              if (!wrapper) return;
+
+              const overlay = wrapper.querySelector(
+                `div[data-overlay="true"]`,
+              ) as HTMLDivElement | null;
+
+              if (overlay) {
+                overlay.style.display = "flex"; // BLACK SCREEN
+              }
+            }
+          });
+
+          consumer.on("trackended", () => {
+            console.log("track ended");
+          });
+
+          consumer.observer.on("resume", () => {
+            console.log("resumed");
+            if (consumer.kind === "video") {
+              const wrapper = document.querySelector(
+                `div[data-consumer-id="${consumer.id}"]`,
+              ) as HTMLDivElement | null;
+
+              if (!wrapper) return;
+
+              const overlay = wrapper.querySelector(
+                `div[data-overlay="true"]`,
+              ) as HTMLDivElement | null;
+
+              if (overlay) {
+                overlay.style.display = "none"; // VIDEO BACK
+              }
+            }
+          });
+
+          consumer.observer.on("close", () => {
+            if (consumer.kind === "video") {
+              const wrapper = document.querySelector(
+                `div[data-consumer-id="${consumer.id}"]`,
+              );
+              wrapper?.remove();
+            }
+          });
+
+          consumerRef.current?.push(consumer);
           socket.emit("resume-consumer", {
             roomId,
             peerId,
@@ -261,7 +361,7 @@ export default function RoomPage() {
           const stream = new MediaStream();
           stream.addTrack(consumer.track);
           if (consumer.kind === "video") {
-            attachVideo(stream, consumer);
+            attachVideo(stream, consumer, producerPeerId);
           } else if (consumer.kind === "audio") {
             attachAudio(stream);
           }
@@ -298,51 +398,33 @@ export default function RoomPage() {
   };
 
   useEffect(() => {
-    socket.on("producer-paused", async () => {
-      toast.error("A producer pasued");
+    socket.on("producerpaused", ({ producerId }) => {
+      consumerRef.current.forEach((consumer) => {
+        if (consumer.producerId === producerId) {
+          console.log("Found matching consumer → show overlay");
+          consumer.pause();
+        }
+      });
     });
-    socket.on("producer-resumed", async () => {
-      toast.error("Producer resumed");
+    socket.on("producerresumed", ({ producerId }) => {
+      consumerRef.current.forEach((consumer) => {
+        if (consumer.producerId === producerId) {
+          console.log("Found matching consumer → show overlay");
+          consumer.resume();
+        }
+      });
     });
     socket.on("user-left-room", async ({ peerId }) => {
       toast.warning(`User ${peerId} left the room`);
     });
-
-    socket.on("producer-stopped", async ({ consumerId }) => {
-      console.log("Consumers first : ", consumerRef);
-
-      const newConsumerRef = consumerRef.current.filter(
-        (consumer) => consumer.id !== consumerId,
-      );
-
-      consumerRef.current = newConsumerRef;
-      console.log("Consumers second : ", consumerRef);
-
-      const container = document.getElementById("remote-videos");
-      if (!container) return;
-
-      const video = container.querySelector(
-        `video[data-consumer-id="${consumerId}"]`,
-      ) as HTMLVideoElement | null;
-
-      if (video) {
-        video.srcObject = null;
-        video.remove();
-      }
-    });
-
     socket.on("new-user", async ({ peerId }) => {
       toast.success(`New user (${peerId}) joined this room`);
     });
-
     socket.on("new-producer", async ({ producer }) => {
       consumeProducer(producer);
     });
 
     return () => {
-      socket.off("producer-paused");
-      socket.off("producer-resumed");
-      socket.off("producer-stopped");
       socket.off("user-left-room");
       socket.off("new-user");
       socket.off("new-producer");
@@ -755,7 +837,6 @@ export default function RoomPage() {
             <button
               className="w-14 h-14 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all hover:scale-110 text-white"
               title="Present screen"
-              
             >
               <svg
                 className="w-6 h-6"

@@ -41,7 +41,6 @@ export const handleGetProducers = async (
 };
 
 export const handleConsume = async (
-  socket: Socket,
   roomId: string,
   consumerPeerId: string,
   producer: {
@@ -74,31 +73,13 @@ export const handleConsume = async (
     return;
   }
 
-  consumer.on("producerclose", async () => {
-    console.log("producer for this consumer has stopped");
-    socket.emit("producer-stopped", { consumerId: consumer.id });
-    consumer.close();
-    Rooms.get(roomId)?.peers.get(consumerPeerId)?.consumers.delete(consumer.id);
-  });
-
-  consumer.on("producerpause", async () => {
-    console.log("SERVER: producer paused");
-    socket.to(roomId).emit("producer-paused");
-  });
-
-  consumer.on("producerresume", async () => {
-    console.log("SERVER: producer resumed");
-    socket.to(roomId).emit("producer-resumed");
-  });
-
-  
-
   await addConsumer(roomId, consumerPeerId, consumer);
   const params = {
     id: consumer.id,
     producerId,
     kind: consumer.kind,
     rtpParameters: consumer.rtpParameters,
+    producerPeerId: producer.peerId,
   };
   console.log("the params sending from the consume event");
   cb({ success: true, params });

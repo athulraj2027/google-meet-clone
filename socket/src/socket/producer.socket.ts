@@ -21,11 +21,15 @@ export function producerSocket(socket: Socket) {
     },
   );
 
-  socket.on("pause-produce", async ({ kind, producerId, roomId, peerId }) => {
-    handlePauseProduce(socket, kind, producerId, roomId, peerId);
-  });
+  socket.on(
+    "pause-produce",
+    async ({ kind, producerId, roomId, peerId }, cb) => {
+      console.log("producer id : ", producerId);
+      handlePauseProduce(kind, producerId, roomId, peerId, cb);
+    },
+  );
 
   socket.on("resume-produce", async ({ kind, producerId, roomId, peerId }) => {
-    handleResumeProduce(socket, kind, producerId, roomId, peerId);
+    handleResumeProduce(kind, producerId, roomId, peerId);
   });
 }
