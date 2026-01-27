@@ -34,6 +34,11 @@ export const handleProduce = async (
   producer.observer.on("resume", () => {
     socket.to(roomId).emit("producerresumed", { producerId: producer.id });
   });
+  producer.observer.on("close", () => {
+    socket
+      .to(roomId)
+      .emit("producerclosed", { producerId: producer.id });
+  });
 
   // console.log("Producer created : ", producer);
   await saveProducer(roomId, peerId, producer);

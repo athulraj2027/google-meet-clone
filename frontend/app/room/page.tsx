@@ -223,7 +223,7 @@ export default function RoomPage() {
     // Overlay for paused/Camera off
     const overlay = document.createElement("div");
     overlay.className =
-      "absolute inset-0 bg-black/70 flex items-center justify-center text-white text-sm hidden";
+      "absolute inset-0 bg-black flex items-center justify-center text-white text-sm hidden";
     overlay.innerText = "Camera Off";
     overlay.dataset.overlay = "true";
     wrapper.appendChild(overlay);
@@ -231,7 +231,7 @@ export default function RoomPage() {
     // Peer ID label at bottom
     const label = document.createElement("div");
     label.className =
-      "absolute bottom-0 left-0 w-full bg-black/50 text-white text-xs py-1 px-2 text-center";
+      "absolute bottom-0 left-0 w-full bg-black text-white text-xs py-1 px-2 text-center";
     label.innerText = producerPeerId;
     wrapper.appendChild(label);
 
@@ -315,10 +315,6 @@ export default function RoomPage() {
                 overlay.style.display = "flex"; // BLACK SCREEN
               }
             }
-          });
-
-          consumer.on("trackended", () => {
-            console.log("track ended");
           });
 
           consumer.observer.on("resume", () => {
@@ -411,6 +407,15 @@ export default function RoomPage() {
         if (consumer.producerId === producerId) {
           console.log("Found matching consumer → show overlay");
           consumer.resume();
+        }
+      });
+    });
+
+    socket.on("producerclosed", ({ producerId }) => {
+      consumerRef.current.forEach((consumer) => {
+        if (consumer.producerId === producerId) {
+          console.log("Found matching consumer → show overlay");
+          consumer.close();
         }
       });
     });
