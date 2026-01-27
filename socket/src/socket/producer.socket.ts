@@ -3,12 +3,16 @@ import {
   handlePauseProduce,
   handleProduce,
   handleResumeProduce,
+  handleStopScreenshare,
 } from "../handlers/producer.handler";
 
 export function producerSocket(socket: Socket) {
   socket.on(
     "produce",
-    async ({ roomId, transportId, kind, rtpParameters, peerId }, cb) => {
+    async (
+      { roomId, transportId, kind, rtpParameters, peerId, appData },
+      cb,
+    ) => {
       handleProduce(
         socket,
         roomId,
@@ -16,6 +20,7 @@ export function producerSocket(socket: Socket) {
         kind,
         rtpParameters,
         peerId,
+        appData,
         cb,
       );
     },
@@ -31,5 +36,9 @@ export function producerSocket(socket: Socket) {
 
   socket.on("resume-produce", async ({ kind, producerId, roomId, peerId }) => {
     handleResumeProduce(kind, producerId, roomId, peerId);
+  });
+
+  socket.on("stop-screen-share", async ({ producerId, peerId, roomId }) => {
+    handleStopScreenshare(producerId, peerId, roomId);
   });
 }

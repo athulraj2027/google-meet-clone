@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
+  AppData,
   Consumer,
   Producer,
   RtpParameters,
@@ -24,13 +25,37 @@ export default function RoomPage() {
 
   const audioProducerRef = useRef<Producer>(undefined);
   const videoProducerRef = useRef<Producer>(undefined);
+  const screenProducerRef = useRef<Producer>(undefined);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localScreenRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream>(null);
+  const localScreenStreamRef = useRef<MediaStream>(null);
+
   const consumerRef = useRef<Consumer[]>([]);
   const [startedConsuming, setStartedConsuming] = useState(false);
 
   const [mic, setMic] = useState(false);
   const [video, setVideo] = useState(false);
+  const [screen, setScreen] = useState(false);
+
+  const resetMediasoupRefs = () => {
+    deviceRef.current = null;
+
+    sendTransportRef.current?.close();
+    recvTransportRef.current?.close();
+
+    sendTransportRef.current = undefined;
+    recvTransportRef.current = undefined;
+
+    videoProducerRef.current?.close();
+    audioProducerRef.current?.close();
+
+    videoProducerRef.current = undefined;
+    audioProducerRef.current = undefined;
+
+    consumerRef.current.forEach((c) => c.close());
+    consumerRef.current = [];
+  };
 
   const startVideo = async () => {
     try {
@@ -181,22 +206,107 @@ export default function RoomPage() {
     }
   };
 
+  const startScreenShare = async () => {
+    try {
+      const peerId = localStorage.getItem("peerId");
+      const mediastream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+      });
+      localScreenStreamRef.current = mediastream;
+      if (localScreenRef.current) {
+        localScreenRef.current.srcObject = mediastream;
+      }
+      const track = mediastream.getVideoTracks()[0];
+      track.onended = () => {
+        console.log("Screen share ended by browser");
+
+        screenProducerRef.current?.close();
+        screenProducerRef.current = undefined;
+        setScreen(false);
+      };
+      const screenProducer = await sendTransportRef.current?.produce({
+        track,
+        appData: { mediaTag: "screen" },
+      });
+
+      if (!screenProducer) {
+        toast.error("Failed to share screen");
+        return;
+      }
+
+      // screenProducer.observer.on("pause", () => {
+      //   socket.emit(
+      //     "pause-produce",
+      //     {
+      //       kind: "video",
+      //       producerId: screenProducer.id,
+      //       roomId,
+      //       peerId,
+      //     },
+      //     ({ success }: { success: boolean; producerId: string }) => {
+      //       console.log("pause : ", success);
+      //     },
+      //   );
+      // });
+
+      // screenProducer.observer.on("resume", () => {
+      //   console.log("resuming producer ...");
+      //   socket.emit("resume-produce", {
+      //     kind: "video",
+      //     producerId: screenProducer.id,
+      //     peerId,
+      //     roomId,
+      //   });
+      // });
+
+      screenProducer.observer.on("close", () => {
+        socket.emit(
+          "stop-screen-share",
+          { producerId: screenProducer.id, peerId, roomId },
+          () => {},
+        );
+      });
+
+      screenProducerRef.current = screenProducer;
+      setScreen(true);
+    } catch (error) {
+      console.log("Error starting screenshare:", error);
+      toast.error("Screen permission required");
+    }
+  };
+
+  const stopScreenShare = async () => {
+    try {
+      screenProducerRef.current?.close();
+      const track = localScreenStreamRef.current?.getVideoTracks()[0];
+      track?.stop();
+      setScreen(false);
+    } catch (error) {
+      console.log("Error stopping screenshare:", error);
+      toast.error("Failed to stop screenshare");
+    }
+  };
+
   const leaveRoom = async () => {
     const peerId = localStorage.getItem("peerId");
 
     socket.emit("leave-room", { peerId, roomId }, async () => {
       videoProducerRef.current?.close();
       audioProducerRef.current?.close();
+      screenProducerRef.current?.close();
       consumerRef.current?.forEach((consumer) => consumer.close());
       consumerRef.current = [];
       sendTransportRef.current?.close();
       recvTransportRef.current?.close();
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localScreenStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
-
+      if (localScreenRef.current) {
+        localScreenRef.current.srcObject = null;
+      }
       toast.success("You left the room");
       router.push("/");
     });
@@ -207,10 +317,12 @@ export default function RoomPage() {
     consumer: Consumer,
     producerPeerId: string,
   ) => {
+    console.log("consumer attatching : ", consumer);
     const wrapper = document.createElement("div");
     wrapper.className =
       "relative w-full h-full rounded-lg overflow-hidden bg-black";
     wrapper.dataset.consumerId = consumer.id;
+    wrapper.dataset.mediaTag = consumer.appData.mediaTag as string;
 
     // Video element
     const video = document.createElement("video");
@@ -250,8 +362,10 @@ export default function RoomPage() {
       producerId: string;
       peerId: string;
       kind: "audio" | "video";
+      appData: AppData;
       paused: boolean;
     }) => {
+      console.log("appdata : ", producer.appData);
       const peerId = localStorage.getItem("peerId");
       if (!recvTransportRef.current || !deviceRef.current) {
         console.error("Recv transport not ready yet");
@@ -275,6 +389,7 @@ export default function RoomPage() {
             id: string;
             producerId: string;
             kind: "audio" | "video";
+            appData: AppData;
             rtpParameters: RtpParameters;
             producerPeerId: string;
           };
@@ -285,12 +400,19 @@ export default function RoomPage() {
             toast.error("Failed to consume from server");
             return;
           }
-          const { id, producerId, kind, rtpParameters, producerPeerId } =
-            params;
+          const {
+            id,
+            producerId,
+            kind,
+            rtpParameters,
+            producerPeerId,
+            appData,
+          } = params;
           const consumer = await recvTransportRef.current?.consume({
             id,
             producerId,
             kind,
+            appData,
             rtpParameters,
           });
           if (!consumer) {
@@ -338,6 +460,7 @@ export default function RoomPage() {
 
           consumer.observer.on("close", () => {
             if (consumer.kind === "video") {
+              console.log("removing the video element");
               const wrapper = document.querySelector(
                 `div[data-consumer-id="${consumer.id}"]`,
               );
@@ -377,6 +500,7 @@ export default function RoomPage() {
         producers: {
           producerId: string;
           peerId: string;
+          appData: AppData;
           kind: "audio" | "video";
           paused: boolean;
         }[];
@@ -412,11 +536,19 @@ export default function RoomPage() {
     });
 
     socket.on("producerclosed", ({ producerId }) => {
-      consumerRef.current.forEach((consumer) => {
+      consumerRef.current = consumerRef.current.filter((consumer) => {
         if (consumer.producerId === producerId) {
-          console.log("Found matching consumer → show overlay");
+          if (consumer.kind === "video") {
+            const wrapper = document.querySelector(
+              `div[data-consumer-id="${consumer.id}"]`,
+            );
+            wrapper?.remove();
+          }
+
           consumer.close();
+          return false; // remove from ref
         }
+        return true;
       });
     });
     socket.on("user-left-room", async ({ peerId }) => {
@@ -433,6 +565,9 @@ export default function RoomPage() {
       socket.off("user-left-room");
       socket.off("new-user");
       socket.off("new-producer");
+      socket.off("producerclosed");
+      socket.off("producerresumed");
+      socket.off("producerpaused");
     };
   }, [consumeProducer]);
 
@@ -515,20 +650,24 @@ export default function RoomPage() {
                   },
                 );
 
-                sendTransport?.on("produce", ({ kind, rtpParameters }, cb) => {
-                  console.log("produce event fired");
-                  socket.emit(
-                    "produce",
-                    {
-                      roomId,
-                      transportId: sendTransport.id,
-                      kind,
-                      rtpParameters,
-                      peerId,
-                    },
-                    ({ id }: { id: string }) => cb({ id }),
-                  );
-                });
+                sendTransport?.on(
+                  "produce",
+                  ({ kind, rtpParameters, appData }, cb) => {
+                    console.log("produce event fired");
+                    socket.emit(
+                      "produce",
+                      {
+                        roomId,
+                        transportId: sendTransport.id,
+                        kind,
+                        rtpParameters,
+                        peerId,
+                        appData,
+                      },
+                      ({ id }: { id: string }) => cb({ id }),
+                    );
+                  },
+                );
                 sendTransportRef.current = sendTransport;
               },
             );
@@ -603,6 +742,7 @@ export default function RoomPage() {
       );
 
       // hard cleanup (local only)
+      resetMediasoupRefs();
       sendTransportRef.current?.close();
       recvTransportRef.current?.close();
       videoProducerRef.current?.close();
@@ -841,21 +981,46 @@ export default function RoomPage() {
             {/* Screen Share */}
             <button
               className="w-14 h-14 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all hover:scale-110 text-white"
-              title="Present screen"
+              title={screen ? "Stop presenting" : "Present screen"}
+              onClick={screen ? stopScreenShare : startScreenShare}
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                />
-              </svg>
+              {screen ? (
+                // Stop screen share icon
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M18.364 5.636l-1.414-1.414L5.636 15.536l1.414 1.414L18.364 5.636z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                  />
+                </svg>
+              ) : (
+                // Start screen share icon
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                  />
+                </svg>
+              )}
             </button>
 
             {/* More Options */}

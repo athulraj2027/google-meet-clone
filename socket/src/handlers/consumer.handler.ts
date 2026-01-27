@@ -1,12 +1,12 @@
-import { RtpCapabilities } from "mediasoup/types";
+import { AppData, RtpCapabilities } from "mediasoup/types";
 import { Rooms } from "../store/room";
 import { getTransport } from "../store/transports";
 import { addConsumer } from "../store/consumers/consumer.add";
-import { Socket } from "socket.io";
 
 interface ProducersListInterface {
   producerId: string;
   peerId: string;
+  appData: AppData;
   kind: "audio" | "video";
   paused: boolean;
 }
@@ -27,6 +27,7 @@ export const handleGetProducers = async (
       producerList.push({
         producerId: producer.id,
         peerId: id,
+        appData: producer.appData,
         kind: producer.kind,
         paused: producer.paused,
       });
@@ -47,6 +48,7 @@ export const handleConsume = async (
     producerId: string;
     peerId: string;
     kind: "audio" | "video";
+    appData: AppData;
     paused: boolean;
   },
   rtpCapabilities: RtpCapabilities,
@@ -54,7 +56,7 @@ export const handleConsume = async (
   cb: (data: any) => void,
 ) => {
   // console.log("handling consume ...", producer);
-  const { producerId } = producer;
+  const { producerId, appData } = producer;
 
   const data = await getTransport(transportId, consumerPeerId, roomId);
   console.log(data);
@@ -65,6 +67,7 @@ export const handleConsume = async (
   const consumer = await data.transport.consume({
     producerId,
     rtpCapabilities,
+    appData,
   });
 
   if (!consumer) {
@@ -77,6 +80,7 @@ export const handleConsume = async (
   const params = {
     id: consumer.id,
     producerId,
+    appData: consumer.appData,
     kind: consumer.kind,
     rtpParameters: consumer.rtpParameters,
     producerPeerId: producer.peerId,

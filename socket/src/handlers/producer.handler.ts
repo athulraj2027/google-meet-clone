@@ -1,4 +1,4 @@
-import { RtpParameters } from "mediasoup/types";
+import { AppData, RtpParameters } from "mediasoup/types";
 import { getTransport } from "../store/transports";
 import { saveProducer } from "../store/producers/producer.save";
 import { Rooms } from "../store/room";
@@ -11,6 +11,7 @@ export const handleProduce = async (
   kind: "video" | "audio",
   rtpParameters: RtpParameters,
   peerId: string,
+  appData: AppData,
   callback: (data: any) => void,
 ) => {
   let producer;
@@ -20,7 +21,7 @@ export const handleProduce = async (
   producer = await transport?.produce({
     kind,
     rtpParameters,
-    appData: { peerId },
+    appData: { ...appData, peerId },
   });
 
   if (!producer) {
@@ -35,9 +36,7 @@ export const handleProduce = async (
     socket.to(roomId).emit("producerresumed", { producerId: producer.id });
   });
   producer.observer.on("close", () => {
-    socket
-      .to(roomId)
-      .emit("producerclosed", { producerId: producer.id });
+    socket.to(roomId).emit("producerclosed", { producerId: producer.id });
   });
 
   // console.log("Producer created : ", producer);
@@ -46,6 +45,7 @@ export const handleProduce = async (
   socket.to(roomId).emit("new-producer", {
     producer: {
       peerId,
+      appData: producer.appData,
       producerId: producer.id,
       kind,
       paused: producer.paused,
@@ -82,4 +82,19 @@ export const handleResumeProduce = async (
   if (!room) return;
   const producer = room.peers.get(peerId)?.producers.get(producerId);
   await producer?.resume();
+};
+
+export const handleStopScreenshare = async (
+  producerId: string,
+  peerId: string,
+  roomId: string,
+) => {
+  const producer = Rooms.get(roomId)
+    ?.peers.get(peerId)
+    ?.producers.get(producerId);
+
+  if (!producer) {
+    return;
+  }
+  await producer.close();
 };
