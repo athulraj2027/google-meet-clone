@@ -64,10 +64,36 @@ export default function Home() {
     );
   };
   return (
-    <div>
-      <p>Status: {isConnected ? "connected" : "disconnected"}</p>
-      <p>Transport: {transport}</p>
-      <Button onClick={createRoom}>Create New Room</Button>
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">
+          Live Connection Status
+        </h2>
+
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Socket Status</span>
+            <span
+              className={`font-medium ${
+                isConnected ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {isConnected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-gray-500">Transport</span>
+            <span className="font-medium text-gray-800">
+              {transport ? "Initialized" : "Not created"}
+            </span>
+          </div>
+        </div>
+
+        <Button onClick={createRoom} className="mt-6 w-full">
+          Create New Room
+        </Button>
+      </div>
     </div>
   );
 }

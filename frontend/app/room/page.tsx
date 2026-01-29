@@ -237,31 +237,6 @@ export default function RoomPage() {
         return;
       }
 
-      // screenProducer.observer.on("pause", () => {
-      //   socket.emit(
-      //     "pause-produce",
-      //     {
-      //       kind: "video",
-      //       producerId: screenProducer.id,
-      //       roomId,
-      //       peerId,
-      //     },
-      //     ({ success }: { success: boolean; producerId: string }) => {
-      //       console.log("pause : ", success);
-      //     },
-      //   );
-      // });
-
-      // screenProducer.observer.on("resume", () => {
-      //   console.log("resuming producer ...");
-      //   socket.emit("resume-produce", {
-      //     kind: "video",
-      //     producerId: screenProducer.id,
-      //     peerId,
-      //     roomId,
-      //   });
-      // });
-
       screenProducer.observer.on("close", () => {
         socket.emit(
           "stop-screen-share",
