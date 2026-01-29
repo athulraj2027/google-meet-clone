@@ -6,8 +6,8 @@ let worker: Worker;
 export async function createWorker() {
   try {
     worker = await mediasoup.createWorker({
-      rtcMinPort: 20000,
-      rtcMaxPort: 20100,
+      rtcMinPort: 49152,
+      rtcMaxPort: 65535,
       logLevel: "warn",
       logTags: [],
     });

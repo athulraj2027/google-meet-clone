@@ -13,6 +13,13 @@ import {
   Transport,
   TransportOptions,
 } from "mediasoup-client/types";
+import { Button } from "@/components/ui/button";
+
+type Message = {
+  message: string;
+  peerId: string;
+  time: Date;
+};
 
 export default function RoomPage() {
   const router = useRouter();
@@ -33,6 +40,8 @@ export default function RoomPage() {
 
   const consumerRef = useRef<Consumer[]>([]);
   const [startedConsuming, setStartedConsuming] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [message, setMessage] = useState("");
 
   const [mic, setMic] = useState(false);
   const [video, setVideo] = useState(false);
@@ -57,7 +66,6 @@ export default function RoomPage() {
     consumerRef.current = [];
     initialized.current = false;
     localStorage.removeItem("peerId");
-
   };
 
   const startVideo = async () => {
@@ -497,6 +505,17 @@ export default function RoomPage() {
     setStartedConsuming(true);
   };
 
+  const sendMessage = async () => {
+    const peerId = localStorage.getItem("peerId");
+    socket.emit("send-message", { peerId, roomId, message }, () => {
+      setMessages((prev) => [
+        ...prev,
+        { peerId: "You", message, time: new Date() },
+      ]);
+      setMessage("");
+    });
+  };
+
   useEffect(() => {
     socket.on("producerpaused", ({ producerId }) => {
       consumerRef.current.forEach((consumer) => {
@@ -541,6 +560,14 @@ export default function RoomPage() {
       consumeProducer(producer);
     });
 
+    socket.on(
+      "message-received",
+      async ({ peerId, message }: { peerId: string; message: string }) => {
+        console.log("message : ", message);
+        setMessages((prev) => [...prev, { message, peerId, time: new Date() }]);
+      },
+    );
+
     return () => {
       socket.off("user-left-room");
       socket.off("new-user");
@@ -548,6 +575,7 @@ export default function RoomPage() {
       socket.off("producerclosed");
       socket.off("producerresumed");
       socket.off("producerpaused");
+      socket.off("message-received");
     };
   }, [consumeProducer]);
 
@@ -740,8 +768,9 @@ export default function RoomPage() {
   }, [roomId]);
 
   return (
-    <div className="min-h-screen bg-[#202124] flex flex-col">
+    <div className="min-h-screen flex flex-col">
       {/* Header */}
+
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-linear-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
@@ -760,8 +789,8 @@ export default function RoomPage() {
             </svg>
           </div>
           <div>
-            <h1 className="text-white font-medium">Room Session</h1>
-            <p className="text-gray-400 text-sm">Meeting in progress</p>
+            <h1 className=" font-medium">Room Session</h1>
+            <p className=" text-sm">Meeting in progress</p>
           </div>
         </div>
 
@@ -787,47 +816,92 @@ export default function RoomPage() {
           </button>
         </div>
       </div>
+      <div className="flex min-h-141">
+        {/* Main Video Area */}
+        <div className="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
+          {/* Background gradient effect */}
+          <div className="absolute inset-0 bg-linear-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"></div>
 
-      {/* Main Video Area */}
-      <div className="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
-        {/* Background gradient effect */}
-        <div className="absolute inset-0 bg-linear-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"></div>
+          {/* Remote Videos Grid */}
+          <div
+            id="remote-videos"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-7xl h-full"
+          >
+            {/* Remote videos will be added here dynamically */}
+          </div>
 
-        {/* Remote Videos Grid */}
-        <div
-          id="remote-videos"
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-7xl h-full"
-        >
-          {/* Remote videos will be added here dynamically */}
-        </div>
-
-        {/* Local Video (Picture-in-Picture) */}
-        <div className="absolute bottom-6 right-6 group">
-          <div className="relative">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-64 aspect-video rounded-xl bg-gray-900 shadow-2xl border-2 border-white/10 object-cover"
-            />
-            <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="absolute bottom-3 left-3 flex items-center gap-2">
-                <div className="bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                  <span className="text-white text-xs font-medium">You</span>
-                </div>
-              </div>
-            </div>
-            {!video && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-800 rounded-xl">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-2">
-                    <span className="text-white text-2xl font-bold">Y</span>
+          {/* Local Video (Picture-in-Picture) */}
+          <div className="absolute bottom-6 right-6 group">
+            <div className="relative">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-64 aspect-video rounded-xl bg-gray-900 shadow-2xl border-2 border-white/10 object-cover"
+              />
+              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                  <div className="bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                    <span className="text-white text-xs font-medium">You</span>
                   </div>
-                  <p className="text-gray-400 text-sm">Camera Off</p>
                 </div>
               </div>
-            )}
+              {!video && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-800 rounded-xl">
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                      <span className="text-white text-2xl font-bold">Y</span>
+                    </div>
+                    <p className="text-gray-400 text-sm">Camera Off</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {/* Chat Section */}
+        <div className="w-80  border-l border-white/10 flex flex-col">
+          {/* Chat Header */}
+          <div className="px-4 py-3 border-b border-white/10  font-medium">
+            Live Chat
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm gap-3">
+            <div className="space-y-2 ">
+              {messages.map((message, index) => (
+                <div
+                  key={index}
+                  className="text-sm border border-gray-600 rounded-md p-2"
+                >
+                  <span className="font-semibold">
+                    {message.peerId.slice(0, 6)}:
+                  </span>{" "}
+                  {message.message}
+                  <br />
+                  <p className="text-xs text-right">
+                    {message.time.toLocaleTimeString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-white/10">
+            <input
+              placeholder="Type a message..."
+              value={message}
+              className="w-full px-3 py-2 rounded-lg bg-[#2a2a2d] text-white text-sm outline-none focus:ring-2 focus:ring-blue-600"
+              onChange={(e) => setMessage(e.target.value)}
+            />
+            <Button
+              onClick={sendMessage}
+              className="bg-black text-gray-400 w-full mt-2"
+            >
+              Send
+            </Button>
           </div>
         </div>
       </div>
@@ -1062,7 +1136,7 @@ export default function RoomPage() {
 
       {/* Start Getting Media Button (temporary) */}
       {!startedConsuming && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/60">
           <button
             onClick={startGettingMedia}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-lg transition-all hover:scale-105"

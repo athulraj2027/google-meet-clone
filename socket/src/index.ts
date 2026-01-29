@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 import { createWorker } from "./mediasoup/worker";
 import {
   consumerSocket,
+  messageSocket,
   producerSocket,
   roomSocket,
   transportSocket,
@@ -30,6 +31,7 @@ io.on("connection", async (socket) => {
   transportSocket(socket);
   producerSocket(socket);
   consumerSocket(socket);
+  messageSocket(socket);
 });
 
 server.listen(PORT, () => {
