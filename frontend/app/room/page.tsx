@@ -2,5 +2,5 @@
 import RoomPage from "@/components/RoomPage";
 
 export default function Page() {
-  <RoomPage />;
+ return <RoomPage />;
 }
