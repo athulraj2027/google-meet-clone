@@ -1,6 +1,7 @@
-"use client";
-import RoomPage from "@/components/RoomPage";
+import { connection } from "next/server";
+import { RoomPage } from "@/components/RoomPage";
 
-export default function Page() {
- return <RoomPage />;
+export default async function Page() {
+  await connection();
+  return <RoomPage />;
 }

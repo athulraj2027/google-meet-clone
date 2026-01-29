@@ -21,7 +21,7 @@ type Message = {
   time: Date;
 };
 
-export default function RoomPage() {
+export const RoomPage = () => {
   const router = useRouter();
   const params = useSearchParams();
   const roomId = params.get("roomId");
@@ -1147,4 +1147,4 @@ export default function RoomPage() {
       )}
     </div>
   );
-}
+};
