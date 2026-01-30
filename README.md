@@ -67,30 +67,6 @@ The focus is on owning the media pipeline end-to-end, including signaling, trans
 
 ---
 
-## Project Structure
-
-
-video-conference/
-│
-├── frontend/              # Next.js frontend
-│   ├── app/
-│   │   └── room/
-│   │       └── page.tsx
-│   ├── components/
-│   │   └── RoomPage.tsx
-│   └── next.config.js
-│
-├── backend/               # Mediasoup server
-│   ├── src/
-│   │   ├── mediasoup/
-│   │   ├── socket/
-│   │   └── index.ts
-│   └── package.json
-│
-├── nginx/
-│   └── site.conf
-│
-└── README.md
 
 
 
