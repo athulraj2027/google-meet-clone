@@ -42,6 +42,7 @@ export const RoomPage = () => {
   const [startedConsuming, setStartedConsuming] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [mic, setMic] = useState(false);
   const [video, setVideo] = useState(false);
@@ -179,12 +180,18 @@ export const RoomPage = () => {
       });
 
       audioProducer?.observer.on("pause", () => {
-        socket.emit("pause-produce", {
-          kind: "audio",
-          producerId: audioProducer.id,
-          roomId,
-          peerId,
-        });
+        socket.emit(
+          "pause-produce",
+          {
+            kind: "audio",
+            producerId: audioProducer.id,
+            roomId,
+            peerId,
+          },
+          ({ success }: { success: boolean; producerId: string }) => {
+            console.log("pause : ", success);
+          },
+        );
       });
 
       audioProducer?.observer.on("resume", () => {
@@ -306,18 +313,36 @@ export const RoomPage = () => {
     producerPeerId: string,
   ) => {
     console.log("consumer attatching : ", consumer);
+    const isScreenShare = consumer.appData.mediaTag === "screen";
     const wrapper = document.createElement("div");
-    wrapper.className =
-      "relative w-full h-full rounded-lg overflow-hidden bg-black";
+    wrapper.className = isScreenShare
+      ? "relative col-span-full row-span-2 w-full rounded-lg overflow-hidden bg-black" // Screen takes full width
+      : "relative w-full rounded-lg overflow-hidden bg-black";
+
     wrapper.dataset.consumerId = consumer.id;
     wrapper.dataset.mediaTag = consumer.appData.mediaTag as string;
 
     // Video element
     const video = document.createElement("video");
+    // After creating the video element in attachVideo:
+    if (isScreenShare) {
+      const screenIndicator = document.createElement("div");
+      screenIndicator.className =
+        "absolute top-3 left-3 bg-blue-600 text-white text-xs px-3 py-1 rounded-full flex items-center gap-2";
+      screenIndicator.innerHTML = `
+    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 4a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V4z"/>
+    </svg>
+    <span>Screen Share</span>
+  `;
+      wrapper.appendChild(screenIndicator);
+    }
     video.srcObject = stream;
     video.autoplay = true;
     video.playsInline = true;
-    video.className = "w-full h-full object-cover";
+    video.className = isScreenShare
+      ? "w-full h-full object-contain min-h-[500px]" // Screen: contain to preserve aspect ratio
+      : "w-full h-70 object-cover"; // Camera: cover to fill space
     wrapper.appendChild(video);
 
     // Overlay for paused/Camera off
@@ -507,6 +532,7 @@ export const RoomPage = () => {
 
   const sendMessage = async () => {
     const peerId = localStorage.getItem("peerId");
+    if (message.trim().length === 0) return;
     socket.emit("send-message", { peerId, roomId, message }, () => {
       setMessages((prev) => [
         ...prev,
@@ -686,6 +712,7 @@ export const RoomPage = () => {
               async (params: TransportOptions) => {
                 console.log("Transport params received for recv : ", params);
                 const recvTransport = device.createRecvTransport(params);
+                setLoading(false);
                 recvTransport?.on(
                   "connect",
                   async ({ dtlsParameters }, callback, errback) => {
@@ -768,7 +795,7 @@ export const RoomPage = () => {
   }, [roomId]);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="relative w-full h-screen overflow-y-scroll">
       {/* Header */}
 
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
@@ -818,14 +845,26 @@ export const RoomPage = () => {
       </div>
       <div className="flex min-h-141">
         {/* Main Video Area */}
-        <div className="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
+        <div className="flex-1 relative overflow-hidden">
           {/* Background gradient effect */}
           <div className="absolute inset-0 bg-linear-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"></div>
 
           {/* Remote Videos Grid */}
           <div
             id="remote-videos"
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-7xl h-full"
+            className="
+    grid
+    grid-cols-1
+    sm:grid-cols-2
+    lg:grid-cols-3
+    xl:grid-cols-4
+    gap-4
+    w-full
+    h-full
+    p-6
+    auto-rows-min
+    items-start
+  "
           >
             {/* Remote videos will be added here dynamically */}
           </div>
@@ -859,6 +898,22 @@ export const RoomPage = () => {
               )}
             </div>
           </div>
+
+          {/* Add this below your existing local video */}
+          {screen && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div
+                className="flex items-center gap-3 px-6 py-3 rounded-xl
+                    bg-black/70 backdrop-blur-md
+                    text-white shadow-lg border border-white/10"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+                <p className="text-sm font-medium tracking-wide">
+                  You are sharing your screen
+                </p>
+              </div>
+            </div>
+          )}
         </div>
         {/* Chat Section */}
         <div className="w-80  border-l border-white/10 flex flex-col">
@@ -1034,45 +1089,45 @@ export const RoomPage = () => {
 
             {/* Screen Share */}
             <button
-              className="w-14 h-14 rounded-full bg-[#3c4043] hover:bg-[#4f5256] flex items-center justify-center transition-all hover:scale-110 text-white"
+              aria-label={
+                screen ? "Stop screen sharing" : "Start screen sharing"
+              }
               title={screen ? "Stop presenting" : "Present screen"}
               onClick={screen ? stopScreenShare : startScreenShare}
+              className={`
+    w-14 h-14 rounded-full flex items-center justify-center
+    transition-all duration-200
+    text-white
+    ${
+      screen
+        ? "bg-emerald-600 hover:bg-emerald-700 scale-110"
+        : "bg-[#3c4043] hover:bg-[#4f5256] hover:scale-110"
+    }
+  `}
             >
               {screen ? (
-                // Stop screen share icon
+                /* Stop Screen Share */
                 <svg
                   className="w-6 h-6"
-                  fill="none"
                   viewBox="0 0 24 24"
-                  stroke="currentColor"
+                  fill="currentColor"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M18.364 5.636l-1.414-1.414L5.636 15.536l1.414 1.414L18.364 5.636z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
-                  />
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               ) : (
-                // Start screen share icon
+                /* Start Screen Share */
                 <svg
                   className="w-6 h-6"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                  />
+                  <rect x="3" y="4" width="18" height="14" rx="2" />
+                  <path d="M8 20h8" />
+                  <path d="M12 16v4" />
                 </svg>
               )}
             </button>
@@ -1134,15 +1189,30 @@ export const RoomPage = () => {
         </div>
       </div>
 
-      {/* Start Getting Media Button (temporary) */}
       {!startedConsuming && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/60">
-          <button
-            onClick={startGettingMedia}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-lg transition-all hover:scale-105"
-          >
-            Start Receiving Media
-          </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <h2 className="text-white text-xl font-semibold">
+              Ready to join the call?
+            </h2>
+
+            <p className="text-white/70 text-sm max-w-sm">
+              Click below to start receiving audio and video streams.
+            </p>
+
+            <button
+              onClick={startGettingMedia}
+              disabled={loading}
+              className="px-8 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 
+                     disabled:bg-blue-400 disabled:cursor-not-allowed
+                     text-white font-medium shadow-lg
+                     transition-all hover:scale-105"
+            >
+              {loading
+                ? "Initializing transports ..."
+                : "Transports ready to consume"}
+            </button>
+          </div>
         </div>
       )}
     </div>
